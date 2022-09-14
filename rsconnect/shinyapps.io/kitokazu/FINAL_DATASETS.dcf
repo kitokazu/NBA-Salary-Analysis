@@ -1,0 +1,13 @@
+name: FINAL_DATASETS
+title: FINAL_DATASETS
+username:
+account: kitokazu
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 6298385
+bundleId: 5904199
+url: https://kitokazu.shinyapps.io/FINAL_DATASETS/
+when: 1652471725.75487
+lastSyncTime: 1652471725.75488
+asMultiple: FALSE
+asStatic: FALSE

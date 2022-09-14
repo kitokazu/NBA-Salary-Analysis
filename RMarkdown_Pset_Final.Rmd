@@ -1,0 +1,478 @@
+---
+title: "Final"
+author: "Kai Itokazu"
+subtitle: MGSC 310 Midterm
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+---
+
+```{r setup, include=FALSE}
+
+# Please leave this code chunk as is. It makes some slight formatting changes to alter the output to be more aesthetically pleasing. 
+
+library(knitr)
+
+# Change the number in set seed to your own favorite number
+set.seed(1818)
+options(width=70)
+options(scipen=99)
+
+
+# this sets text outputted in code chunks to small
+opts_chunk$set(tidy.opts=list(width.wrap=50),tidy=TRUE, size = "vsmall")  
+opts_chunk$set(message = FALSE,                                          
+               warning = FALSE,
+               # "caching" stores objects in code chunks and only rewrites if you change things
+               cache = FALSE,                               
+               # automatically downloads dependency files
+               autodep = TRUE,
+               # 
+               cache.comments = FALSE,
+               # 
+               collapse = TRUE,
+               # change fig.width and fig.height to change the code height and width by default
+               fig.width = 5.5,  
+               fig.height = 4.5,
+               fig.align='center')
+
+
+```
+
+```{r setup-2}
+
+# Always print this out before your assignment
+sessionInfo()
+getwd()
+
+```
+
+```{r setup-3}
+
+# load all your libraries in this chunk 
+library('tidyverse')
+# note, do not run install.packages() inside a code chunk. install them in the console outside of a code chunk. 
+
+```
+
+
+```{r}
+
+library('here')
+nba_players <-
+  read.csv(here("FINAL","salary_player.csv"))
+
+```
+
+```{r}
+library("nbastatR")
+library('ggplot2')
+library('highcharter')
+library('dplyr')
+library(dplyr)
+library(magrittr)
+library(priceR)
+
+library(shiny)
+library(shinythemes)
+
+
+
+```
+
+### Data Manipulation
+
+
+
+#### Filtering
+```{r, results='hide'}
+nba_players<-
+  nba_players %>% mutate(raptor_score = Raptor...)
+
+#Removing statistically insignificant players and adjusting for inflation
+nba_players %<>% filter(MPG > 10, G > 20) %>% 
+  mutate(salary_adjusted = adjust_for_inflation(salary,season_start,"US", to_date = max(year_id)),
+         salary_M = salary_adjusted / 1000000,
+         WAR_per_million = Raptor.WAR/salary_M,
+         Raptor_per_million = raptor_score/salary_M)
+```
+
+### MORE DATA CLEANING
+```{r}
+library(here)
+library(dplyr)
+library(magrittr)
+library(priceR)
+library(highcharter)
+library(hash)
+library(stringr)
+library(forcats)
+
+players_historic <- read.csv(here("FINAL/FINAL_DATASETS/NBA_Players.csv"))
+salaries <- read.csv(here("FINAL/FINAL_DATASETS/salaries_1985to2018.csv"))
+
+glimpse(players_historic)
+
+players_historic %<>% rename(Raptor_T = Raptor...,
+                             Raptor_O = Raptor.O,
+                             Raptor_D = Raptor.D,
+                             Raptor_WAR = Raptor.WAR) %>% 
+  filter(type == "RS", Min > 50) %>% 
+  arrange(age) %>% arrange(player_id) %>% 
+  select(player_id, name_common, age, pos, year_id, team_id, G, Min, MPG, starts_with("Raptor")) %>% 
+  mutate(team_id = fct_collapse(team_id, CHA = c("CHA", "CHH"), WAS = c("WAS", "WSB")))
+
+salaries %<>% select(player_id, salary, season_end)
+
+players <- players_historic %>% 
+  inner_join(salaries, by = "player_id", "year_id") %>% 
+  filter(year_id == season_end,) %>%
+  select(!season_end)
+
+players %<>% group_by(player_id, year_id) %>% 
+  filter(n() == 1) %>% 
+  arrange(year_id) %>% 
+  arrange(player_id)
+
+players$salary_adjusted <- c(adjust_for_inflation(players$salary, players$year_id, "US", to_date = max(players$year_id)))
+players %<>% mutate(salary_M = round(salary_adjusted / 1000000, 3),
+                   Raptor_per_million = Raptor_T/salary_M,
+                   WAR_per_million = Raptor_WAR/salary_M)
+
+players_clean <- players %>% group_by(player_id) %>% 
+  mutate(Raptor_F = lead(Raptor_T, order_by = year_id),
+         Raptor_WAR_F = lead(Raptor_WAR, order_by = year_id),
+         salary_M_F = lead(salary_M, order_by = year_id),
+         WAR_per_million_F = lead(WAR_per_million, order_by = year_id),
+         Raptor_per_million_F = lead(Raptor_per_million, order_by = year_id),
+         age_squared = (age)^2) %>%
+  filter(!is.na(Raptor_F))
+players_clean
+
+
+
+```
+
+
+
+
+
+### Data Summary
+
+#### Summary Statistics by season 1985-2018
+```{r}
+season_summary <- nba_players %>% group_by(year_id) %>% 
+  summarise(salary_sum = sum(salary_M),
+            salary_ave = mean(salary_M),
+            player_count = str_count(toString(player_id)),
+            raptor_ave = mean(raptor_score))
+season_summary
+```
+#### Average and sum of slaries per season 1985-2018
+```{r}
+ggplot(data = season_summary, aes(x = year_id, y = salary_sum)) + geom_col() #1987 doesn't follow pattern
+ggplot(data = season_summary, aes(x = year_id, y = salary_ave)) + geom_col() #1990 doesn't follow pattern
+```
+
+
+```{r}
+season_summary %>% filter(player_count < 2000) #Verifying which years have insufficient data
+nba_players_clean <- nba_players %>% filter(year_id == 1987, 
+                                            year_id == 1990)#Filtering out seasons without sufficient data for seasonal data analysis
+```
+
+
+### Plots
+
+#### Plot of average RAPTOR rating and average salary (adjusted for inflation) through each NBA players career
+```{r, message=FALSE}
+# ggplot(data = nba_players, aes(x=raptor_score, y = salary_adjusted)) + geom_point() + xlim
+
+
+average_player_stats <- nba_players %>% 
+  group_by(player_id, name_common) %>%
+  summarise(across(where(is.numeric), mean, na.rm = FALSE))
+
+#Minutes per Game vs Raptor Score
+ggplot(data = average_player_stats, aes(x=raptor_score, y = salary_adjusted)) + geom_point(alpha = 0.5)  + ggtitle("Average Player Stats - Avg Raptor Score vs Average Salary (adjusted for inflation) - 1985-2018") + xlim(-10, 10) + labs(x = "Average Raptor Score", y = "Average Salary")
+
+
+
+```
+
+#### Average Raptor WAR vs Average Salary (adjusted inflation) over the years. Players with Raptor Scores over 0
+```{r}
+average_player_stats <- nba_players %>% 
+  group_by(player_id, name_common) %>%
+  summarise(across(where(is.numeric), mean, na.rm = FALSE))
+
+#Filter players that are greater than 0
+players_score_positive <- average_player_stats %>% 
+  filter(raptor_score >= 0)
+
+#ROUND
+players_score_positive <- players_score_positive %>% mutate(raptor_war = round(Raptor.WAR,2))
+players_score_positive <- players_score_positive %>% mutate(salary_M = round(salary_M,2))
+
+hchart(players_score_positive, "scatter", hcaes(x="Raptor.WAR", y="salary_M", group="name_common")) %>% 
+  hc_tooltip(pointFormat = "<b>{point.name_common}</b><br/>AVG RAPTOR WAR Score:{point.raptor_war}<br/><br/>AVG Salary: {point.salary_M}<br/>") %>%
+  hc_title(text="Raptor WAR vs Salary") %>% 
+  hc_subtitle(text="Average WAR Score vs Average Salary in Millions (adjusted inflation) over the years. Players with Raptor Scores over 0") %>% 
+  hc_legend(enabled = FALSE)
+
+
+
+
+```
+
+
+#### Raptor score and salary based on 2018
+```{r}
+
+library('highcharter')
+library('dplyr')
+nba_players_2018 <- nba_players %>% 
+  filter(season_end == 2018)
+
+nba_players_2018<-
+  nba_players_2018 %>% mutate(raptor_score = Raptor...)
+
+
+hchart(nba_players_2018, "scatter", hcaes(x="raptor_score", y="salary", group="team")) %>% 
+  hc_tooltip(pointFormat = "<b>{point.name_common}</b><br/>Raptor Score:{point.raptor_score}<br/><br/>Salary: {point.salary}<br/>") %>%
+  hc_title(text="Raptor Score vs Salary") %>% 
+  hc_subtitle(text="2018 Season Data")
+
+```
+
+
+
+#### Raptor score and salary based on 2018 - GROUPED BY POSITIONS
+```{r}
+nba_players_2018 <- nba_players %>% 
+  filter(season_end == 2018)
+
+nba_players_2018<-
+  nba_players_2018 %>% mutate(raptor_score = Raptor...)
+
+nba_players_2018<-
+  nba_players_2018 %>% mutate(salary_M = round(salary_M,2))
+
+
+hchart(nba_players_2018, "scatter", hcaes(x="raptor_score", y="salary_M", group="pos")) %>% 
+  hc_tooltip(pointFormat = "<b>{point.name_common}</b><br/>Raptor Score:{point.raptor_score}<br/><br/>Salary: {point.salary_M}<br/>") %>%
+  hc_title(text="Raptor Score vs Salary (By Position)") %>% 
+  hc_subtitle(text="2018 Season Data")
+
+
+
+
+```
+
+
+#### Plot of average RAPTOR rating and average minutes per game through each NBA players career
+```{r, message=FALSE}
+average_player_stats <- nba_players %>% 
+  group_by(player_id, name_common) %>%
+  summarise(across(where(is.numeric), mean, na.rm = FALSE))
+
+#Minutes per Game vs Raptor Score
+ggplot(data = average_player_stats, aes(x=raptor_score, y = MPG)) + geom_point(alpha = 0.5)  + ggtitle("Average Player Stats - Avg Raptor Score vs Average Minutes Per Game  (1985-2018) ") + xlim(-10, 10) + labs(x = "Average Raptor Score", y = "Average Minutes Per Game")
+```
+
+
+### PREDICTING A PLAYER'S SALARY FOR THE FOLLWING SEASON
+
+
+
+```{r}
+library(shiny)
+library(shinythemes)
+library(data.table)
+library(RCurl)
+library(randomForest)
+
+rf_mods <- list()
+mse_err <- NULL
+test_err <- NULL
+
+#THIS TAKES FOREVER
+#Hyperparameter Tuning
+# for(mtry in 1:9){
+#   rt_fit <- randomForest(salary_M_F ~ MPG + Raptor_T + Raptor_WAR + age + factor_pos + salary_M, 
+#                          data = players_clean, 
+#                          type = regression, 
+#                          ntree = 500, 
+#                          mtry = mtry, 
+#                          importance = TRUE)
+#   
+#   mse_err[mtry] <- rt_fit$mse[500]
+# 
+#   cat(mtry," ")
+# }
+# 
+# mse_err
+# 
+# res_DF <- data.frame(mtry = 1:9, mse_err)
+# 
+# ggplot(res_DF, aes(x = mtry, y = mse_err)) + geom_point() + theme_minimal()
+
+
+# players_clean <- players_clean %>% mutate(factor_pos = as.factor(pos))
+glimpse(players_clean) 
+
+players_clean <- players_clean %>% mutate(factor_pos = as.factor(pos))
+#Random Forest
+rt_fit <- randomForest(salary_M_F ~ MPG + Raptor_T + Raptor_WAR + age + factor_pos + salary_M, data = players_clean, type = regression, ntree = 500, mtry = 3, importance = TRUE)
+
+
+#Linear Regression Model
+lm_mod <- lm(salary_M_F ~ MPG + Raptor_T + Raptor_WAR + age + factor_pos + salary_M, data = players_clean)
+
+
+#HISTOGRAM FOR HELP
+ggplot(data = nba_players, aes(x = salary_M)) + 
+  geom_histogram() + ggtitle("Salary Distribution") +
+  xlab("Salary (in Millions)") + ylab("Frequency")
+
+
+glimpse(nba_players)
+
+max(nba_players$age)
+min(nba_players$age)
+
+factor(nba_players$pos)
+
+print(rt_fit) 
+
+plot(rt_fit)
+
+#variable importance plot
+varImpPlot(rt_fit, type = 1, scale = FALSE)
+
+#Importance of Plot
+importance(rt_fit, type=1, scale = FALSE)
+
+#Mininum Depth Distribution
+# plot_min_depth_distribution(rt_fit)
+
+# explain_forest(rt_fit, 
+#                interactions = TRUE, 
+#                data = players_clean)
+
+
+#
+# --------- R SHINY DASHBOARD -----------
+#
+#---- USER INTERFACE --------
+ui <- fluidPage(theme = shinytheme("united"),
+  
+  # Page header
+  headerPanel('Estimating Salary (in Millions)'),
+  
+  # Input values
+  sidebarPanel(
+    
+    HTML("<h3>Select Position</h3>"),
+    
+    selectInput("factor_pos", label = "Position:", 
+                choices = list("Center" = "C",
+                               "Power Forward" = "PF", 
+                               "Point Guard" = "PG", 
+                               "Small Forward" = "SF",
+                               "Shooting Guard" = "SG"), 
+                selected = "Power Forward"),
+    
+    
+    sliderInput("salary_M", label = "Current Season Salary:",
+                min = 0, max = 50,
+                value = 2),
+    
+    sliderInput("MPG", label = "Minutes Per Game:",
+                min = 10, max = 40,
+                value = 24),
+    
+    sliderInput("Raptor_T", label = "Raptor Score:",
+                min = -14, max = 14,
+                value = 0),
+    
+    sliderInput("Raptor_WAR", label = "Raptor Wins Above Replacement:",
+                min = -5, max = 24,
+                value = 0),
+
+    sliderInput("age", label = "Age",
+                min = 18, max = 42,
+                value = 25),
+    
+    actionButton("submitbutton", "Submit", class = "btn btn-primary")
+  ),
+  
+  mainPanel(
+    tags$label(h3('Output')), # Status/Output Text Box
+    verbatimTextOutput('contents'),
+    tableOutput('tabledata') # Prediction results table
+    
+  )
+)
+
+
+
+#------- SERVER -------
+server <- function(input, output, session) {
+
+  # Input Data
+  datasetInput <- reactive({
+
+  df <- data.frame(
+    Name = c("factor_pos","salary_M","MPG","Raptor_T","Raptor_WAR","age"),
+    Value = as.character(c(input$factor_pos,
+                           input$salary_M,
+                           input$MPG,
+                           input$Raptor_T,
+                           input$Raptor_WAR,
+                           input$age)),
+    stringsAsFactors = FALSE)
+
+  sal <- "salary_M"
+  df <- rbind(df, sal)
+  input <- transpose(df)
+  write.table(input,"input.csv", sep=",", quote = FALSE, row.names = FALSE, col.names = FALSE)
+  
+  test <- read.csv(paste("input", ".csv", sep=""), header = TRUE)
+  
+  test$factor_pos <- factor(test$factor_pos, levels = c("C","PF","PG","SF","SG"))
+  
+  Output <- data.frame(RandomForest=round(predict(rt_fit,test,type="response"), 2),
+                       LinearRegression=round(predict(lm_mod,test,type="response"), 2))
+  print(Output)
+  
+  
+  
+})
+  
+  # Status/Output Text Box
+  output$contents <- renderPrint({
+    if (input$submitbutton>0) { 
+      isolate("Estimated Player Salary") 
+    } else {
+      return("Enter Player Information")
+    }
+  })
+  
+  # Prediction results table
+  output$tabledata <- renderTable({
+    if (input$submitbutton>0) { 
+      isolate(datasetInput()) 
+    } 
+  })
+  
+}
+
+####################################
+# Create the shiny app             #
+####################################
+shinyApp(ui = ui, server = server) 
+
+```
+
