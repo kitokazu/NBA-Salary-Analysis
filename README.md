@@ -4,5 +4,10 @@ Did an analysis on NBA player's salary based on certain statistics. Our main met
 * See PDF for report </br>
 * [Link to Presentation](https://docs.google.com/presentation/d/1LHoxlblZoOmapu_C8ocXmItLrqD-Yf8tux3oM3JykGo/edit?usp=sharing) </br>
 
+## Techniques Used
+* Linear Regression
+* Logistic Regression
+* Random Forest
+* Elastic Net
 
 
